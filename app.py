@@ -2,18 +2,21 @@ from fastapi import FastAPI, Response
 import requests
 import os
 import yaml
+import logging
 from prometheus_client.metrics_core import GaugeMetricFamily
 from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 
 # Create app
 app = FastAPI(debug=False)
 
+# Настройка логгера
+logger = logging.getLogger("uvicorn.info")  # Используем логгер Uvicorn с уровнем INFO
 
 class TrivyHealthExporter:
     def __init__(self, trivy_url):
         self.trivy_url = trivy_url
         self.health_status = 0  # 0 — не работает, 1 — работает
-        print(f"INFO: TrivyHealthExporter instance created with URL: {self.trivy_url}")
+        logger.info(f"TrivyHealthExporter instance created with URL: {self.trivy_url}")
 
     def check_health(self):
         try:
@@ -41,7 +44,7 @@ class TrivyHealthExporter:
 # Функция для чтения конфигурации из файла
 def load_config(config_file):
     if not os.path.exists(config_file):
-        print(f"Configuration file '{config_file}' not found. Using default values.")
+        logger.warning(f"Configuration file '{config_file}' not found. Using default values.")
         return {}  # Возвращаем пустой конфиг, если файл не найден
     with open(config_file, 'r') as file:
         return yaml.safe_load(file)
@@ -53,9 +56,18 @@ config = load_config(config_path)
 
 # Проверка на наличие ключа "url" в конфиге
 default_url = "http://localhost:4954"
-trivy_url = os.getenv("TRIVY_SERVER_URL", config.get("trivy", {}).get("url", default_url))
+trivy_url = default_url
+url_source = "default_url"
 
-print(f"INFO: Using Trivy URL: {trivy_url}")
+
+if "TRIVY_SERVER_URL" in os.environ:
+    trivy_url = os.getenv("TRIVY_SERVER_URL")
+    url_source = "environment variable TRIVY_SERVER_URL"
+elif config.get("trivy", {}).get("url"):
+    trivy_url = config.get("trivy", {}).get("url")
+    url_source = "configuration file config.yaml"
+
+logger.info(f"Using Trivy URL: {trivy_url} (source: {url_source})")
 
 
 @app.get("/")
