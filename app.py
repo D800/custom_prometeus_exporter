@@ -51,7 +51,7 @@ def load_config(config_file):
 
 
 # Указание пути к конфигу
-config_path = "config.yaml"
+config_path = "config.yml"
 config = load_config(config_path)
 
 # Проверка на наличие ключа "url" в конфиге
@@ -65,7 +65,7 @@ if "TRIVY_SERVER_URL" in os.environ:
     url_source = "environment variable TRIVY_SERVER_URL"
 elif config.get("trivy", {}).get("url"):
     trivy_url = config.get("trivy", {}).get("url")
-    url_source = "configuration file config.yaml"
+    url_source = "configuration file config.yml"
 
 logger.info(f"Using Trivy URL: {trivy_url} (source: {url_source})")
 
