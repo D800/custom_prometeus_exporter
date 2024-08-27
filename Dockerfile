@@ -12,6 +12,6 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 #
 COPY ./app.py /code/app.py
-COPY ./config.py /code/config.yml
+COPY ./config.yml /code/config.yml
 
 CMD ["fastapi", "run", "app.py", "--port", "23889"]
