@@ -1,8 +1,11 @@
-from fastapi import FastAPI, Response
+import sys
+
 import requests
 import os
 import yaml
 import logging
+import socket
+from fastapi import FastAPI, Response
 from prometheus_client.metrics_core import GaugeMetricFamily
 from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 
@@ -11,6 +14,7 @@ app = FastAPI(debug=False)
 
 # Настройка логгера
 logger = logging.getLogger("uvicorn.info")  # Используем логгер Uvicorn с уровнем INFO
+
 
 class TrivyHealthExporter:
     def __init__(self, trivy_url):
@@ -59,7 +63,6 @@ default_url = "http://localhost:4954"
 trivy_url = default_url
 url_source = "default_url"
 
-
 if "TRIVY_SERVER_URL" in os.environ:
     trivy_url = os.getenv("TRIVY_SERVER_URL")
     url_source = "environment variable TRIVY_SERVER_URL"
@@ -69,11 +72,27 @@ elif config.get("trivy", {}).get("url"):
 
 logger.info(f"Using Trivy URL: {trivy_url} (source: {url_source})")
 
+# Получение IP-адреса сервера
+server_ip = socket.gethostbyname(socket.gethostname())
+
+# Порт, на котором будет запущено приложение
+server_port = int(os.getenv("UVICORN_PORT", 8000))  # Можно также указать порт в переменной окружения
+
+# Извлечение порта из аргументов командной строки
+if '--port' in sys.argv:
+    port_index = sys.argv.index('--port') + 1
+    if port_index < len(sys.argv):
+        server_port = int(sys.argv[port_index])
+
+
+logger.info(f"Server IP Address: {server_ip}")
+logger.info(f"Server Port: {server_port}")
+
 
 @app.get("/")
 async def read_root():
     return {"Hello": "World from metrics exporter!",
-            "See metrics": "/metrics"}
+            "See metrics": "http://" + server_ip + ":" + str(server_port) + "/metrics"}
 
 
 # Создаем экспортера с использованием конфигурации
@@ -86,3 +105,5 @@ def metrics():
     trivy_health_exporter.check_health()  # Обновляем статус перед возвращением метрик
     print(f"TrivyHealthExporter.health_status=", trivy_health_exporter.health_status)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
