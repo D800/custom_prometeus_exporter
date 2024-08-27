@@ -3,7 +3,7 @@ import requests
 import os
 import yaml
 from prometheus_client.metrics_core import GaugeMetricFamily
-from prometheus_client import make_asgi_app, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 
 # Create app
 app = FastAPI(debug=False)
@@ -13,19 +13,20 @@ class TrivyHealthExporter:
     def __init__(self, trivy_url):
         self.trivy_url = trivy_url
         self.health_status = 0  # 0 — не работает, 1 — работает
+        print(f"INFO: TrivyHealthExporter instance created with URL: {self.trivy_url}")
 
-    # def check_health(self):
-    #     try:
-    #         response = requests.get(f"{self.trivy_url}/healthz", timeout=5)
-    #         if response.status_code == 200 and response.text.strip().lower() == "ok":
-    #             self.health_status = 1
-    #         else:
-    #             self.health_status = 0
-    #     except requests.RequestException:
-    #         self.health_status = 0
+    def check_health(self):
+        try:
+            response = requests.get(f"{self.trivy_url}/healthz", timeout=2, verify=False)
+            if response.status_code == 200 and response.text.strip().lower() == "ok":
+                self.health_status = 1
+            else:
+                self.health_status = 0
+        except requests.RequestException:
+            self.health_status = 0
 
     def collect(self):
-        # self.check_health()  # Выполняем проверку перед сбором метрик
+        self.check_health()  # Выполняем проверку перед сбором метрик
 
         health_metric = GaugeMetricFamily(
             "trivy_health_status",
@@ -54,7 +55,7 @@ config = load_config(config_path)
 default_url = "http://localhost:4954"
 trivy_url = os.getenv("TRIVY_SERVER_URL", config.get("trivy", {}).get("url", default_url))
 
-print(f"Using Trivy URL: {trivy_url}")
+print(f"INFO: Using Trivy URL: {trivy_url}")
 
 
 @app.get("/")
@@ -63,24 +64,13 @@ async def read_root():
             "See metrics": "/metrics"}
 
 
+# Создаем экспортера с использованием конфигурации
+trivy_health_exporter = TrivyHealthExporter(trivy_url)
+REGISTRY.register(trivy_health_exporter)
+
+
 @app.get("/metrics")
 def metrics():
-    print(f"Trying to get response from {trivy_url}/healthz")
-    try:
-        response = requests.get(f"{trivy_url}/healthz", timeout=5, verify=False)
-
-        if response.status_code == 200 and response.text.strip().lower() == "ok":
-            TrivyHealthExporter.health_status = 1
-        else:
-            TrivyHealthExporter.health_status = 0
-        print(response, f"\nTrivyHealthExporter.health_status=", TrivyHealthExporter.health_status)
-    except requests.RequestException as e:
-        print(f"Request failed: {e}")  # Логирование ошибки
-        TrivyHealthExporter.health_status = 0
-
+    trivy_health_exporter.check_health()  # Обновляем статус перед возвращением метрик
+    print(f"TrivyHealthExporter.health_status=", trivy_health_exporter.health_status)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-
-# Создаем экспортера с использованием конфигурации
-
-REGISTRY.register(TrivyHealthExporter(trivy_url))
