@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 COPY ./app.py /code/app.py
 COPY ./config.yml /code/config.yml
 
-CMD ["fastapi", "run", "app.py"]
+CMD ["python", "app.py"]
