@@ -14,7 +14,7 @@ from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 app = FastAPI(debug=False)
 
 # Настройка логгера
-logger = logging.getLogger("uvicorn.info")  # Используем логгер Uvicorn с уровнем INFO
+logger = logging.getLogger(__name__)  # Используем логгер Uvicorn с уровнем INFO
 
 
 class TrivyHealthExporter:
