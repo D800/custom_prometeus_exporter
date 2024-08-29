@@ -1,2 +1,4 @@
 trivy:
   url: "https://172.16.34.16:10443"
+track:
+  url: "https://track.demo.appsec.global"
