@@ -56,7 +56,7 @@ class TrackHealthExporter:
             logger.error(f"Request failed: {e}")
             self.health_status = 0
 
-    def collect(self):
+    def collect(self): # переопределение метода библиотеки prometheus_client
         self.check_health()  # Выполняем проверку перед сбором метрик
 
         health_metric = GaugeMetricFamily(
