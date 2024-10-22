@@ -5,21 +5,21 @@
 
 ```json 
 {
-    "status": "UP",
-    "components": {
-        "diskSpace": {
-            "status": "UP",
-            "details": {
-                "total": 105581297664,
-                "free": 13111955456,
-                "threshold": 10485760,
-                "exists": true
-            }
-        },
-        "ping": {
-            "status": "UP"
-        }
-    }
+    "status": "UP",
+    "components": {
+        "diskSpace": {
+            "status": "UP",
+            "details": {
+                "total": 105581297664,
+                "free": 13111955456,
+                "threshold": 10485760,
+                "exists": true
+            }
+        },
+        "ping": {
+            "status": "UP"
+        }
+    }
 }
 ```
 
