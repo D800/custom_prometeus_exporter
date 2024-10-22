@@ -12,10 +12,8 @@ from fastapi import FastAPI, Response
 from prometheus_client.metrics_core import GaugeMetricFamily
 from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST, Counter
 
-# Create app
 app = FastAPI(debug=False)
 
-# Настройка логгера
 logger = logging.getLogger(__name__)  # Используем логгер Uvicorn с уровнем INFO
 
 
@@ -30,12 +28,10 @@ class TrackHealthExporter:
 
     def check_health(self):
         try:
-            # Sending the request to the specified URL
             response = requests.get(f"{self.track_url}/actuator/health/custom",
                                     timeout=2, verify=False)
             response.raise_for_status()  # Raises an error for bad responses (4xx/5xx)
             self.requests_total += 1
-            # Parsing the JSON response
             health_data = response.json()
 
             if not health_data:
@@ -45,7 +41,6 @@ class TrackHealthExporter:
             if health_data.get("status") == "UP":
                 self.health_status = 1
             else:
-                # If no vulnerabilities are found, set health_status to 1
                 self.health_status = 0
             if "components" in health_data and "diskSpace" in health_data["components"]:
                 if health_data["components"]["diskSpace"]["status"] == "UP":
@@ -57,11 +52,11 @@ class TrackHealthExporter:
             self.health_status = 0
 
     def collect(self):  # переопределение метода библиотеки prometheus_client
-        self.check_health()  # Выполняем проверку перед сбором метрик
+        self.check_health()  # Выполняем запрос перед генерации метрик
 
         health_metric = GaugeMetricFamily(
             "track_health_status",
-            "Состояние здоровья сервера Track (1 — работает, 0 — не работает), общее дисковое пространство, свободное",
+            "Состояние Бэкенда Трека",
             labels=["service"]
         )
 
