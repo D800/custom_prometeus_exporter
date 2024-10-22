@@ -10,7 +10,7 @@ import logging
 import socket
 from fastapi import FastAPI, Response
 from prometheus_client.metrics_core import GaugeMetricFamily
-from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST, Counter
 
 # Create app
 app = FastAPI(debug=False)
@@ -25,6 +25,7 @@ class TrackHealthExporter:
         self.health_status = 0  # 0 — не работает, 1 — работает
         self.disk_total = 0.0
         self.disk_free = 0.0
+        self.requests_total = 0
         logger.info(f"TrackHealthExporter instance created with URL: {self.track_url}")
 
     def check_health(self):
@@ -33,14 +34,13 @@ class TrackHealthExporter:
             response = requests.get(f"{self.track_url}/actuator/health/custom",
                                     timeout=2, verify=False)
             response.raise_for_status()  # Raises an error for bad responses (4xx/5xx)
-
+            self.requests_total += 1
             # Parsing the JSON response
             health_data = response.json()
 
             if not health_data:
                 logger.warning("JSON is empty")
                 return
-            pprint(health_data)
 
             if health_data.get("status") == "UP":
                 self.health_status = 1
@@ -56,7 +56,7 @@ class TrackHealthExporter:
             logger.error(f"Request failed: {e}")
             self.health_status = 0
 
-    def collect(self): # переопределение метода библиотеки prometheus_client
+    def collect(self):  # переопределение метода библиотеки prometheus_client
         self.check_health()  # Выполняем проверку перед сбором метрик
 
         health_metric = GaugeMetricFamily(
@@ -70,6 +70,14 @@ class TrackHealthExporter:
         health_metric.add_metric(["disk_free_GB"], self.disk_free)
         yield health_metric
 
+        # request_counter = Counter(
+        #     "total_track_status_requests",
+        #     "Суммарное количество запросов на /actuator/health/custom",
+        #     ["hqweb"]
+        # )
+        #
+        # request_counter.inc(self.requests_total)
+        # yield request_counter
 
 # Функция для чтения конфигурации из файла
 def load_config(config_file):
