@@ -1,6 +1,6 @@
 import sys
 from pprint import pprint
-
+from typing import Dict, Any
 import requests
 import os
 
@@ -9,107 +9,79 @@ import yaml
 import logging
 import socket
 from fastapi import FastAPI, Response
-from prometheus_client.metrics_core import GaugeMetricFamily
-from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST, Counter
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Gauge
 
 app = FastAPI(debug=False)
 
-logger = logging.getLogger(__name__)  # Используем логгер Uvicorn с уровнем INFO
+logger = logging.getLogger(__name__)
 
 
 class TrackHealthExporter:
-    def __init__(self, track_url):
-        self.track_url = track_url
-        self.health_status = 0  # 0 — не работает, 1 — работает
-        self.disk_total = 0.0
-        self.disk_free = 0.0
-        self.requests_total = 0
-        logger.info(f"TrackHealthExporter instance created with URL: {self.track_url}")
-
-    def check_health(self):
-        try:
-            response = requests.get(f"{self.track_url}/actuator/health/custom",
-                                    timeout=2, verify=False)
-            response.raise_for_status()  # Raises an error for bad responses (4xx/5xx)
-            self.requests_total += 1
-            health_data = response.json()
-
-            if not health_data:
-                logger.warning("JSON is empty")
-                return
-
-            if health_data.get("status") == "UP":
-                self.health_status = 1
-            else:
-                self.health_status = 0
-            if "components" in health_data and "diskSpace" in health_data["components"]:
-                if health_data["components"]["diskSpace"]["status"] == "UP":
-                    self.disk_total = round(health_data["components"]["diskSpace"]["details"]["total"] / (1024 ** 3), 2)
-                    self.disk_free = round(health_data["components"]["diskSpace"]["details"]["free"] / (1024 ** 3), 2)
-
-        except requests.RequestException as e:
-            logger.error(f"Request failed: {e}")
-            self.health_status = 0
-
-    def collect(self):  # переопределение метода библиотеки prometheus_client
-        self.check_health()  # Выполняем запрос перед генерации метрик
-
-        health_metric = GaugeMetricFamily(
-            "track_health_status",
-            "Состояние Бэкенда Трека",
-            labels=["service"]
+    def __init__(self,track: Dict[str, Dict[str, Any]]) -> None:
+        self.track = track
+        self._requests_status = Counter(
+            name="track_requests_count",
+            documentation="Количество запросов статуса отправленных на бэкенд трека",
+            labelnames=["backend_name", "backend_adr", "backend_port"],
+        )
+        self._track_status = Gauge(
+            name="track_statu",
+            documentation="Отслеживание работает ли бэкенд трека",
+            labelnames=["backend_name", "backend_adr", "backend_port"],
+        )
+        self._track_disk = Gauge(
+            name="track_disk",
+            documentation="Пространство на диске бэкенд трека",
+            labelnames=["backend_name", "backend_adr", "backend_port", "state"],
         )
 
-        health_metric.add_metric(["UP"], self.health_status)
-        health_metric.add_metric(["disk_total_GB"], self.disk_total)
-        health_metric.add_metric(["disk_free_GB"], self.disk_free)
-        yield health_metric
+        logger.info(f"TrackHealthExporter instance created with config: {self.track}")
 
-        # request_counter = Counter(
-        #     "total_track_status_requests",
-        #     "Суммарное количество запросов на /actuator/health/custom",
-        #     ["hqweb"]
-        # )
-        #
-        # request_counter.inc(self.requests_total)
-        # yield request_counter
+    def check_health(self):
+        for backend_name, backend_config in self.track.items():
+            try:
+                response = requests.get(f"{backend_config.get('protocol')}://{backend_config.get('adr')}:{backend_config.get('port')}/actuator/health/custom",
+                                        timeout=1, verify=False)
+                response.raise_for_status()  # Raises an error for bad responses (4xx/5xx)
+                self._requests_status.labels(backend_name=backend_name, backend_adr=backend_config.get('adr'), backend_port=backend_config.get('port')).inc()
+                health_data = response.json()
+                if not health_data:
+                    logger.warning("JSON is empty")
+                    return
 
-# Функция для чтения конфигурации из файла
-def load_config(config_file):
-    if not os.path.exists(config_file):
-        logger.warning(f"Configuration file '{config_file}' not found. Using default values.")
-        return {}  # Возвращаем пустой конфиг, если файл не найден
-    with open(config_file, 'r') as file:
-        return yaml.safe_load(file)
+                if health_data.get("status") == "UP":
+                    self._track_status.labels(backend_name=backend_name, backend_adr=backend_config.get('adr'), backend_port=backend_config.get('port')).set(1)
+                else:
+                    self._track_status.labels(backend_name=backend_name, backend_adr=backend_config.get('adr'), backend_port=backend_config.get('port')).set(0)
+                if "components" in health_data and "diskSpace" in health_data["components"]:
+                    if health_data["components"]["diskSpace"]["status"] == "UP":
+                        self._track_disk.labels(
+                            backend_name=backend_name,
+                            backend_adr=backend_config.get('adr'),
+                            backend_port=backend_config.get('port'),
+                            state="total"
+                        ).set(round(health_data["components"]["diskSpace"]["details"]["total"] / (1024 ** 3), 4))
+                        self._track_disk.labels(
+                            backend_name=backend_name,
+                            backend_adr=backend_config.get('adr'),
+                            backend_port=backend_config.get('port'),
+                            state="free"
+                        ).set(round(health_data["components"]["diskSpace"]["details"]["free"] / (1024 ** 3), 4))
 
+            except requests.RequestException as e:
+                logger.error(f"Request failed: {e}")
+                self._track_status.labels(backend_name=backend_name, backend_adr=backend_config.get('adr'), backend_port=backend_config.get('port')).set(0)
 
 # Указание пути к конфигу
 config_path = "./config.yml"
-config = load_config(config_path)
+with open(config_path, 'r') as file:
+    config =  yaml.safe_load(file)
 
-# Проверка на наличие ключа "url" в конфиге
-default_url = "http://localhost:4954"
-track_url = default_url
-url_source = "default_url"
-
-if "TRACK_SERVER_URL" in os.environ:
-    track_url = os.getenv("TRACK_SERVER_URL")
-    url_source = "environment variable TRACK_SERVER_URL"
-elif config.get("track", {}).get("url"):
-    track_url = config.get("track", {}).get("url")
-    url_source = "configuration file config.yml"
-
-logger.info(f"Using track URL: {track_url} (source: {url_source})")
-print(f"Using track URL: {track_url} (source: {url_source})")
-# Получение IP-адреса сервера
 server_ip = socket.gethostbyname(socket.gethostname())
-
-# Порт, на котором будет запущено приложение
 server_port = int(os.getenv("UVICORN_PORT", 8000))  # Можно также указать порт в переменной окружения
-print("Printing TRACK_SERVER_URL from OS" + "\n" + str(os.getenv("TRACK_SERVER_URL")))
-print("Printing UVICORN_PORT from OS" + "\n" + str(os.getenv("UVICORN_PORT")))
+#print("Printing TRACK_SERVER_URL from OS" + "\n" + str(os.getenv("TRACK_SERVER_URL")))
+#print("Printing UVICORN_PORT from OS" + "\n" + str(os.getenv("UVICORN_PORT")))
 
-# Извлечение порта из аргументов командной строки
 if '--port' in sys.argv:
     port_index = sys.argv.index('--port') + 1
     if port_index < len(sys.argv):
@@ -126,14 +98,12 @@ async def read_root():
 
 
 # Создаем экспортера с использованием конфигурации
-track_health_exporter = TrackHealthExporter(track_url)
-REGISTRY.register(track_health_exporter)
-
+track_config = config.get('track', {})
+track_health_exporter = TrackHealthExporter(track_config)
 
 @app.get("/metrics")
 def metrics():
     track_health_exporter.check_health()  # Обновляем статус перед возвращением метрик
-    print(f"trackHealthExporter.health_status=", track_health_exporter.health_status)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
